@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: ds3-web-mysql-on-openshift3
+  annotations: 
+    description: "DS3 Web interface and MySQL on OpenShift 3"
+    tags: "instant-app"
+parameters: 
+- name: MYSQL_PASSWORD
+  value: toomanysecrets
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: ds3-web
+- apiVersion: v1
+  kind: BuildConfig
+  metadata: 
+    name: "ds3-web-mysql-on-openshift3"
+  spec:
+    triggers:
+      - type: ImageChange
+    source:
+      type: Git
+      git:
+        uri: https://github.com/dvdstore/ds3.git
+    strategy: 
+      type: Source
+      sourceStrategy:
+        from:
+          kind: ImageStreamTag
+          name: "php:5.6"
+          namespace: openshift
+    output:
+      to:
+        kind: ImageStreamTag
+        name: "ds3-web:latest"
+- apiVersion: v1
+  kind: ConfigMap
+  metadata: 
+    name: php.ini
+  data:
+    php.ini: |-
+      error_reporting = E_ALL ^ (E_DEPRECATED)
+      display_errors = On
+      mysql.default_host = mysql
+      mysql.default_user = ds3
+      mysql.default_password = ${MYSQL_PASSWORD}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata: 
+    name: ds3-web
+  spec:
+    replicas: 1
+    selector: 
+      deploymentconfig: ds3-web
+    template:
+      metadata:
+        labels:
+          deploymentconfig: ds3-web
+      spec:
+        containers:
+        - name: ds3-web
+          image: "ds3-web:latest"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          imagePullPolicy: Always
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /usr/bin/ln
+                  - '-s'
+                  - /phphack/php.ini
+                  - /etc/opt/rh/rh-php56/php.d/phphack.ini
+          volumeMounts:
+            - mountPath: /phphack/
+              name: volume-phphack
+        volumes:
+          - configMap:
+              name: php.ini
+              defaultMode: 420
+            name: volume-phphack
+  triggers:
+  - type: ConfigChange
+  - type: ImageChange
+    imageChangeParams:
+      from:
+        kind: ImageStreamTag
+        name: "ds3-web:latest"
+      automatic: true
+      containerNames:
+      - ds3-web
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: dvdstore-web
+  spec:
+    ports: 
+      - name: 8080-tcp
+        port: 8080
+        targetPort: 8080
+        protocol: TCP
+    selector:
+      deploymentconfig: ds3-web
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: ds3-web-route
+  spec:
+    port:
+      targetPort: 8080-tcp
+    to:
+      kind: Service
+      name: dvdstore-web
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name:  mysql
+  spec:
+    replicas: 1
+    selector: 
+      deploymentconfig: mysql
+    template:
+      metadata:
+        labels:
+          deploymentconfig: mysql
+      spec:
+        containers:
+        - name: mysql
+          env:
+            - name: MYSQL_USER
+              value: "ds3"
+            - name: MYSQL_PASSWORD
+              value: "${MYSQL_PASSWORD}"
+            - name: MYSQL_ROOT_PASSWORD
+              value: "${MYSQL_PASSWORD}"
+            - name: MYSQL_DATABASE
+              value: "DS3"
+          image: centos/mysql-57-centos7:latest
+- apiVersion: v1
+  kind: Service
+  metadata: 
+    name: mysql
+  spec:
+    ports: 
+      - name: mysql
+        port: 3306
+        protocol: TCP
+        targetPort: 3306
+    selector:
+      deploymentconfig: mysql
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata: 
+    name: mysql
+  spec:
+    accessModes: 
+      - "ReadWriteOnce"
+    resources:
+      requests:
+        storage: "1Gi"
