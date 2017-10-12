@@ -43,7 +43,7 @@ objects:
     php.ini: |-
       error_reporting = E_ALL ^ (E_DEPRECATED)
       display_errors = On
-      mysql.default_host = mysql
+      mysql.default_host = ${APP_NAME}-database
       mysql.default_user = ds3
       mysql.default_password = ${MYSQL_PASSWORD}
 - apiVersion: v1
